@@ -1,0 +1,43 @@
+name: Generate Video Thumbnails
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  thumbnails:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Generate and upload thumbnails
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: bg-v1
+        run: |
+          set -e
+          REPO="${{ github.repository }}"
+          mkdir -p work && cd work
+
+          # Pull every .mp4 asset from the release (ignore "no match" errors)
+          gh release download "$TAG" --repo "$REPO" --pattern "*.mp4" --clobber || true
+
+          shopt -s nullglob
+          for video in *.mp4; do
+            base="${video%.mp4}"
+            echo "$video -> ${base}.jpg"
+            ffmpeg -y -i "$video" -ss 00:00:01 -frames:v 1 -vf scale=480:-1 "${base}.jpg"
+          done
+
+          if compgen -G "*.jpg" > /dev/null; then
+            gh release upload "$TAG" --repo "$REPO" *.jpg --clobber
+            echo "Thumbnails uploaded."
+          else
+            echo "No videos found — nothing to do."
+          fi
